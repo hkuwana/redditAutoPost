@@ -4,6 +4,7 @@ import json
 import time
 from datetime import datetime
 import sys
+from typing import Dict, Any
 
 class RedditAccountManager:
     def __init__(self, accounts_file: str = 'accounts.json'):
@@ -17,98 +18,125 @@ class RedditAccountManager:
                 client_secret=account['client_secret'],
                 username=account['username'],
                 password=account['password'],
-                user_agent=f"script:meme_poster:v1.0 (by /u/{account['username']})"
+                user_agent=f"script:content_poster:v1.0 (by /u/{account['username']})"
             )
 
-    def get_flair_id(self, username: str, subreddit_name: str, flair_text: str) -> str:
+    def get_flair_id(self, username: str, subreddit_name: str, flair_text: str) -> str | None:
         subreddit = self.reddit_instances[username].subreddit(subreddit_name)
         for flair in subreddit.flair.link_templates:
             if flair['text'].lower() == flair_text.lower():
                 return flair['id']
         return None
 
-    def post_meme(self, username: str, subreddit: str, image_path: str, 
-                  title: str, description: str = None, flair_text: str = None) -> str:
-        reddit = self.reddit_instances[username]
-        subreddit_obj = reddit.subreddit(subreddit)
-        
-        # Get flair ID if flair_text provided
-        flair_id = None
-        if flair_text:
-            flair_id = self.get_flair_id(username, subreddit, flair_text)
-            if not flair_id:
-                print(f"Warning: Flair '{flair_text}' not found in r/{subreddit}")
+    def post_content(self, username: str, content_data: Dict[str, Any], debug: bool = False) -> str:
+        if debug:
+            print(f"\nUsername: {username}")
+            print(f"Subreddit: {content_data['subreddit']}")
+            print(f"Title: {content_data['title']}")
+            print(f"Image path: {content_data.get('image_path', 'None')}")
+            print(f"Description: {content_data['description']}")
+            print(f"Flair: {content_data.get('flair_text', 'None')}")
+            return "DEBUG_URL"
 
-        # Submit with flair
-        submission = subreddit_obj.submit_image(
-            title=title,
-            image_path=image_path,
-            flair_id=flair_id
-        )
+        reddit = self.reddit_instances[username]
+        subreddit = reddit.subreddit(content_data['subreddit'])
         
-        if description:
-            submission.reply(description)
+        flair_id = None
+        if content_data.get('flair_text'):
+            flair_id = self.get_flair_id(username, content_data['subreddit'], content_data['flair_text'])
+
+        try:
+            if content_data.get('image_path'):
+                submission = subreddit.submit_image(
+                    title=content_data['title'],
+                    image_path=content_data['image_path'],
+                    flair_id=flair_id
+                )
+            else:
+                submission = subreddit.submit(
+                    title=content_data['title'],
+                    selftext=content_data['description'],
+                    flair_id=flair_id
+                )
             
+            # If we got here, submission was successful
+            if content_data.get('image_path') and not debug:
+                os.remove(content_data['image_path'])
+                
+            if content_data.get('description') and content_data.get('image_path'):
+                try:
+                    submission.reply(content_data['description'])
+                except Exception as e:
+                    print(f"Error posting comment: {str(e)}")
+                    
+        except Exception as e:
+            if "WebSocket" in str(e) and submission is not None:
+                # Post was successful despite WebSocket error
+                if content_data.get('image_path') and not debug:
+                    os.remove(content_data['image_path'])
+                return f"https://reddit.com{submission.permalink}"
+            raise e
+                
         return f"https://reddit.com{submission.permalink}"
 
 def countdown_timer(minutes: int):
     for remaining in range(minutes * 60, 0, -1):
-        sys.stdout.write("\r")
-        sys.stdout.write(f"Next post in: {remaining//60:02d}:{remaining%60:02d}")
+        sys.stdout.write(f"\rNext post in: {remaining//60:02d}:{remaining%60:02d}")
         sys.stdout.flush()
         time.sleep(1)
     sys.stdout.write("\r" + " " * 30 + "\r")
 
+def prepare_content(account: Dict[str, Any]) -> Dict[str, Any] | None:
+    subreddit_config = account['subreddits'][0]
+    content = {
+        'subreddit': subreddit_config['name'],
+        'title': subreddit_config['title_template'],
+        'description': subreddit_config['description_template'],
+        'flair_text': subreddit_config.get('flair_text')
+    }
+
+    if account['profile']['content_type'] == 'meme':
+        if not os.path.exists('images'):
+            os.makedirs('images')
+            return None
+
+        images = sorted([f for f in os.listdir('images') if f.lower().endswith(('.jpg', '.jpeg','.png', '.gif'))])
+        if not images:
+            return None
+            
+        content['image_path'] = os.path.join('images', images[0])
+
+    return content
+
 def main():
     manager = RedditAccountManager()
-    memes_folder = "memes"
-    meme_files = sorted(os.listdir(memes_folder))
     post_times = []
     delay_minutes = 26
+    debug_mode = False # Turn to False when posting 
+    
+    if debug_mode:
+        delay_minutes = 0
 
     for i, account in enumerate(manager.accounts):
         if i > 0:
-            print(f"\nWaiting {delay_minutes} minutes before next post...")
             countdown_timer(delay_minutes)
-            
-        if not meme_files:
-            print("No more memes to post!")
-            break
+        
+        content = prepare_content(account)
+        if not content:
+            print(f"No content available for {account['username']}")
+            continue
 
-        meme = meme_files[0]
-        meme_path = os.path.join(memes_folder, meme)
         current_time = datetime.now()
         post_times.append(current_time)
-        subreddit = account['target_subreddits'][0]
 
         try:
-            # Use custom_title directly
-            title = account['profile']['custom_title']
-            
-            # Use description_template directly
-            description = account['profile']['description_template']
-
-            url = manager.post_meme(
-                username=account['username'],
-                subreddit=subreddit,
-                image_path=meme_path,
-                title=title,
-                description=description,
-                flair_text=account.get('flair_text')
-            )
+            url = manager.post_content(account['username'], content, debug=debug_mode)
             print(f"\nPosted at {current_time.strftime('%H:%M:%S')}")
-            print(f"Posted {meme} to r/{subreddit}")
+            print(f"Posted to r/{content['subreddit']}")
             print(f"Post URL: {url}")
-            print(f"Subreddit URL: https://reddit.com/r/{subreddit}")
-            
-            meme_files.pop(0)
             
         except Exception as e:
-            print(f"\nWarning: {str(e)}")
-            if "websocket" in str(e).lower():
-                print("Post likely succeeded despite websocket error. Check the subreddit.")
-    else:
-        print(f"Error posting as {account['username']}: {str(e)}")
+            print(f"Error posting as {account['username']}: {str(e)}")
 
     print("\nAll posts completed!")
     for i, post_time in enumerate(post_times):

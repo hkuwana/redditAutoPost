@@ -27,102 +27,85 @@
 
 3. Install required package:
 
-````bash
-    pip install praw
-    ```
+   ```bash
+   pip install praw
+   ```
 
 4. Create folder structure:
 
-    ```bash
-    mkdir memes
-    ```
+   ```bash
+   mkdir images
+   ```
 
 5. Create `accounts.json`:
 
-    ```json
-    [
-    {
-        "username": "your_username",
-        "password": "your_password",
-        "client_id": "your_client_id",
-        "client_secret": "your_client_secret",
-        "target_subreddits": ["subreddit_name"],
-        "flair_text": "Flair",
-        "profile": {
-        "zodiac_sign": "Your_Sign",
-        "custom_title": "Your Title",
-        "description_template": "Your description with [links](URL)"
-        }
-    }
-    ]
-    ```
+   ```json
+   [
+     {
+       "username": "your_username",
+       "password": "your_password",
+       "client_id": "your_client_id",
+       "client_secret": "your_client_secret",
+       "profile": {
+         "content_type": "meme"
+       },
+       "subreddits": [
+         {
+           "name": "subreddit_name",
+           "flair_text": "Your_Flair",
+           "title_template": "Your Post Title",
+           "description_template": "Your description with [links](URL)"
+         }
+       ]
+     }
+   ]
+   ```
 
-6. Add images to `memes` folder
+7. Add images to `images` folder
 
-7. Run the script:
+8. Run the script:
 
-    ```bash
-    python reddit.py
-    ```
+   ```bash
+   python reddit.py
+   ```
 
 ## Troubleshooting
 
-- If you see websocket errors but posts appear successful, you can ignore these warnings
+- If you see websocket errors but posts appear successful, these can be ignored - images will still be deleted after successful posting
 - Verify your Reddit API credentials if posts fail
-- Ensure images are in supported formats (jpg, png)
+- Ensure images are in supported formats (jpg, png, gif)
 
 ## Features
 
 - Posts images with custom titles and descriptions
 - Supports post flairs
-- X-minute delay between posts Right now set to 46 minutes.
+- 26-minute delay between posts
 - Progress tracking with countdown timer
-````
+- Debug mode for testing
+- Handles WebSocket connection errors gracefully
+- Automatic cleanup of posted images
 
-## Reddit Developer API Setup Guide
+## Reddit Developer API Setup
 
 ### Creating Your Reddit App
 
 1. Go to [Reddit App Preferences](https://www.reddit.com/prefs/apps)
-
-2. Click "create another app..." at bottom of page
-
-3. Fill in the app details:
-   - **name**: Choose a name for your app
+2. Click "create another app..." at bottom
+3. Fill in details:
+   - **name**: Choose app name
    - **app type**: Select "script"
-   - **description**: Brief description of your app
+   - **description**: Brief app description
    - **redirect uri**: Use `http://localhost:8080`
-   - **about url**: Optional, can leave blank
+   - **about url**: Optional
 
 4. Click "create app"
 
 ### Getting Your Credentials
 
-After creation, you'll see your app's details. Note these important values:
+After creation, note these values:
 
-- **client_id**: Found under your app name (14 character string)
+- **client_id**: Found under app name (14 character string)
 - **client_secret**: Listed as "secret"
-
-### Updating accounts.json
-
-Add these credentials to your `accounts.json`:
-```json
-[
-  {
-    "username": "your_reddit_username",
-    "password": "your_reddit_password",
-    "client_id": "your_14_char_client_id",
-    "client_secret": "your_27_char_secret",
-    "target_subreddits": ["subreddit_name"],
-    "flair_text": "Flair",
-    "profile": {
-      "zodiac_sign": "Your_Sign",
-      "custom_title": "Your Post Title",
-      "description_template": "Your description with [links](URL)"
-    }
-  }
-]
-```
 
 ### Security Notes
 
