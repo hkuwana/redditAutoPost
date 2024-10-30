@@ -21,7 +21,6 @@ class RedditAccountManager:
             )
 
     def get_flair_id(self, username: str, subreddit_name: str, flair_text: str) -> str:
-        """Get flair ID by matching flair text"""
         subreddit = self.reddit_instances[username].subreddit(subreddit_name)
         for flair in subreddit.flair.link_templates:
             if flair['text'].lower() == flair_text.lower():
@@ -52,20 +51,20 @@ class RedditAccountManager:
             
         return f"https://reddit.com{submission.permalink}"
 
-    def format_title(self, base_title: str, profile: dict) -> str:
-        return base_title.format(**profile)
-
-    def format_description(self, base_description: str, profile: dict) -> str:
-        return base_description.format(**profile)
-
-# [Previous countdown_timer function remains the same]
+def countdown_timer(minutes: int):
+    for remaining in range(minutes * 60, 0, -1):
+        sys.stdout.write("\r")
+        sys.stdout.write(f"Next post in: {remaining//60:02d}:{remaining%60:02d}")
+        sys.stdout.flush()
+        time.sleep(1)
+    sys.stdout.write("\r" + " " * 30 + "\r")
 
 def main():
     manager = RedditAccountManager()
     memes_folder = "memes"
     meme_files = sorted(os.listdir(memes_folder))
     post_times = []
-    delay_minutes = 15
+    delay_minutes = 26
 
     for i, account in enumerate(manager.accounts):
         if i > 0:
@@ -83,15 +82,11 @@ def main():
         subreddit = account['target_subreddits'][0]
 
         try:
-            title = manager.format_title(
-                "Any other {zodiac_sign}s feel this way? {custom_title}",
-                account['profile']
-            )
+            # Use custom_title directly
+            title = account['profile']['custom_title']
             
-            description = manager.format_description(
-                account['profile']['description_template'],
-                account['profile']
-            )
+            # Use description_template directly
+            description = account['profile']['description_template']
 
             url = manager.post_meme(
                 username=account['username'],
@@ -99,15 +94,21 @@ def main():
                 image_path=meme_path,
                 title=title,
                 description=description,
-                flair_text=account.get('flair_text')  # Get flair from account config
+                flair_text=account.get('flair_text')
             )
             print(f"\nPosted at {current_time.strftime('%H:%M:%S')}")
-            print(f"Posted {meme} to r/{subreddit} using {account['username']}: {url}")
+            print(f"Posted {meme} to r/{subreddit}")
+            print(f"Post URL: {url}")
+            print(f"Subreddit URL: https://reddit.com/r/{subreddit}")
             
             meme_files.pop(0)
             
         except Exception as e:
-            print(f"\nError posting as {account['username']}: {str(e)}")
+            print(f"\nWarning: {str(e)}")
+            if "websocket" in str(e).lower():
+                print("Post likely succeeded despite websocket error. Check the subreddit.")
+    else:
+        print(f"Error posting as {account['username']}: {str(e)}")
 
     print("\nAll posts completed!")
     for i, post_time in enumerate(post_times):

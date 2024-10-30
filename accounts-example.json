@@ -1,17 +1,15 @@
-{
-    "accounts": [
-        {
-            "username": "user1",
-            "password": "pass1",
-            "client_id": "id1",
-            "client_secret": "secret1",
-            "target_subreddits": ["astrology"],
-            "flair_text": "Meme", 
-            "profile": {
-                "zodiac_sign": "Taurus",
-                "custom_title": "Mercury retrograde got me like...",
-                "description_template": "As a {zodiac_sign}, I totally resonate with this! {custom_message}"
-            }
-        }
-    ]
-}
+[
+  {
+    "username": "user1",
+    "password": "pass1",
+    "client_id": "id1",
+    "client_secret": "secret1",
+    "target_subreddits": ["astrology"],
+    "flair_text": "Meme",
+    "profile": {
+      "zodiac_sign": "Taurus",
+      "custom_title": "Mercury retrograde got me like...",
+      "description_template": "As a {zodiac_sign}, I totally resonate with this! {custom_message}"
+    }
+  }
+]
