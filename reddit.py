@@ -1,3 +1,4 @@
+import random
 import praw
 import os
 import json
@@ -90,23 +91,35 @@ def prepare_content(account: Dict[str, Any]) -> Dict[str, Any] | None:
     subreddit_config = account['subreddits'][0]
     content = {
         'subreddit': subreddit_config['name'],
-        'title': subreddit_config['title_template'],
-        'description': subreddit_config['description_template'],
         'flair_text': subreddit_config.get('flair_text')
     }
+    
+    # Handle title selection
+    title_template = subreddit_config['title_template']
+    content['title'] = random.choice(title_template) if isinstance(title_template, list) else title_template
+
+    # Handle description selection
+    description_template = subreddit_config['description_template']
+    description = random.choice(description_template) if isinstance(description_template, list) else description_template
+
+    # Replace hyperlink if exists
+    hyperlink = account['profile'].get('hyperlink', '')
+    content['description'] = description.format(hyperlink=hyperlink)
 
     if account['profile']['content_type'] == 'meme':
-        if not os.path.exists('images'):
-            os.makedirs('images')
+        folder_name = f"{subreddit_config['name']}-images"
+        if not os.path.exists(folder_name):
+            os.makedirs(folder_name)
+            print(f"Created folder: {folder_name}")
             return None
 
-        images = sorted([f for f in os.listdir('images') if f.lower().endswith(('.jpg', '.jpeg','.png', '.gif'))])
+        images = sorted([f for f in os.listdir(folder_name) if f.lower().endswith(('.jpg', '.png', '.gif'))])
         if not images:
             return None
             
-        content['image_path'] = os.path.join('images', images[0])
+        content['image_path'] = os.path.join(folder_name, images[0])
 
-    return content
+    return content  
 
 def main():
     manager = RedditAccountManager()
