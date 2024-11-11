@@ -10,7 +10,17 @@ from typing import Dict, Any
 class RedditAccountManager:
     def __init__(self, accounts_file: str = 'accounts.json'):
         with open(accounts_file) as f:
-            self.accounts = json.load(f)
+            config = json.load(f)
+            
+        # Store global settings with defaults
+        self.global_settings = config.get('global_settings', {
+            'debug_mode': False,
+            'delay_minutes': 33,
+            'posting_enabled': True
+        })
+        
+        # Store accounts
+        self.accounts = config.get('accounts', [])
         
         self.reddit_instances = {}
         for account in self.accounts:
@@ -29,6 +39,15 @@ class RedditAccountManager:
                 return flair['id']
         return None
 
+    def safely_delete_image(self, image_path: str, debug: bool = False) -> None:
+        """Safely delete an image file if it exists and we're not in debug mode."""
+        if not debug and image_path and os.path.exists(image_path):
+            try:
+                os.remove(image_path)
+                print(f"Deleted image: {image_path}")
+            except Exception as e:
+                print(f"Error deleting image {image_path}: {str(e)}")
+
     def post_content(self, username: str, content_data: Dict[str, Any], debug: bool = False) -> str:
         if debug:
             print(f"\nUsername: {username}")
@@ -41,6 +60,7 @@ class RedditAccountManager:
 
         reddit = self.reddit_instances[username]
         subreddit = reddit.subreddit(content_data['subreddit'])
+        submission = None
         
         flair_id = None
         if content_data.get('flair_text'):
@@ -53,6 +73,8 @@ class RedditAccountManager:
                     image_path=content_data['image_path'],
                     flair_id=flair_id
                 )
+                # Delete image immediately after successful submission
+                self.safely_delete_image(content_data['image_path'], debug)
             else:
                 submission = subreddit.submit(
                     title=content_data['title'],
@@ -60,10 +82,6 @@ class RedditAccountManager:
                     flair_id=flair_id
                 )
             
-            # If we got here, submission was successful
-            if content_data.get('image_path') and not debug:
-                os.remove(content_data['image_path'])
-                
             if content_data.get('description') and content_data.get('image_path'):
                 try:
                     submission.reply(content_data['description'])
@@ -72,12 +90,14 @@ class RedditAccountManager:
                     
         except Exception as e:
             if "WebSocket" in str(e) and submission is not None:
-                # Post was successful despite WebSocket error
-                if content_data.get('image_path') and not debug:
-                    os.remove(content_data['image_path'])
+                print("WebSocket error encountered but post succeeded.")
+                self.safely_delete_image(content_data['image_path'], debug)
                 return f"https://reddit.com{submission.permalink}"
+            
+            print(f"Error posting content: {str(e)}")
+            self.safely_delete_image(content_data['image_path'], debug)
             raise e
-                
+            
         return f"https://reddit.com{submission.permalink}"
 
 def countdown_timer(minutes: int):
@@ -87,8 +107,7 @@ def countdown_timer(minutes: int):
         time.sleep(1)
     sys.stdout.write("\r" + " " * 30 + "\r")
 
-def prepare_content(account: Dict[str, Any]) -> Dict[str, Any] | None:
-    subreddit_config = account['subreddits'][0]
+def prepare_content(account: Dict[str, Any], subreddit_config: Dict[str, Any]) -> Dict[str, Any] | None:
     content = {
         'subreddit': subreddit_config['name'],
         'flair_text': subreddit_config.get('flair_text')
@@ -119,41 +138,74 @@ def prepare_content(account: Dict[str, Any]) -> Dict[str, Any] | None:
             
         content['image_path'] = os.path.join(folder_name, images[0])
 
-    return content  
-
+    return content
 def main():
-    manager = RedditAccountManager()
-    post_times = []
-    delay_minutes = 26
-    debug_mode = False # Turn to False when posting 
+    print("Starting Reddit poster script...")
     
-    if debug_mode:
-        delay_minutes = 0
-
-    for i, account in enumerate(manager.accounts):
-        if i > 0:
-            countdown_timer(delay_minutes)
+    try:
+        manager = RedditAccountManager()
         
-        content = prepare_content(account)
-        if not content:
-            print(f"No content available for {account['username']}")
-            continue
-
-        current_time = datetime.now()
-        post_times.append(current_time)
-
-        try:
-            url = manager.post_content(account['username'], content, debug=debug_mode)
-            print(f"\nPosted at {current_time.strftime('%H:%M:%S')}")
-            print(f"Posted to r/{content['subreddit']}")
-            print(f"Post URL: {url}")
+        # Get settings from global config
+        debug_mode = manager.global_settings.get('debug_mode', False)
+        delay_minutes = manager.global_settings.get('delay_minutes', 33)
+        posting_enabled = manager.global_settings.get('posting_enabled', True)
+        
+        print(f"Debug mode: {debug_mode}")
+        print(f"Delay minutes: {delay_minutes}")
+        print(f"Posting enabled: {posting_enabled}")
+        
+        if not posting_enabled:
+            print("Posting is disabled in global settings. Exiting...")
+            return
             
-        except Exception as e:
-            print(f"Error posting as {account['username']}: {str(e)}")
+        if debug_mode:
+            print("Running in debug mode")
+            delay_minutes = 0
 
-    print("\nAll posts completed!")
-    for i, post_time in enumerate(post_times):
-        print(f"Post {i+1}: {post_time.strftime('%H:%M:%S')}")
+        post_times = []
+        posts_made = 0  # Track total posts made
+
+        print(f"Processing {len(manager.accounts)} accounts...")
+
+        for account in manager.accounts:
+            print(f"\nProcessing account: {account['username']}")
+            
+            for subreddit_config in account['subreddits']:
+                print(f"Processing subreddit: {subreddit_config['name']}")
+                
+                # Add delay BEFORE making each post (except the first one)
+                if posts_made > 0:
+                    print(f"\nWaiting {delay_minutes} minutes before next post...")
+                    countdown_timer(delay_minutes)
+                
+                content = prepare_content(account, subreddit_config)
+                if not content:
+                    print(f"No content available for {account['username']} in r/{subreddit_config['name']}")
+                    continue
+
+                current_time = datetime.now()
+                
+                try:
+                    url = manager.post_content(account['username'], content, debug=debug_mode)
+                    post_times.append(current_time)
+                    posts_made += 1  # Increment post counter
+                    
+                    print(f"\nPosted at {current_time.strftime('%H:%M:%S')}")
+                    print(f"Posted to r/{content['subreddit']}")
+                    print(f"Post URL: {url}")
+                    print(f"Posts made so far: {posts_made}")
+                    
+                except Exception as e:
+                    print(f"Error posting as {account['username']}: {str(e)}")
+
+        print("\nAll posts completed!")
+        print(f"Total posts made: {posts_made}")
+        for i, post_time in enumerate(post_times):
+            print(f"Post {i+1}: {post_time.strftime('%H:%M:%S')}")
+            
+    except Exception as e:
+        print(f"Error in main: {str(e)}")
+        raise e
 
 if __name__ == "__main__":
     main()
