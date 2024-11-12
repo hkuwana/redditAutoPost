@@ -3,9 +3,9 @@ import praw
 import os
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import sys
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 class RedditAccountManager:
     def __init__(self, accounts_file: str = 'accounts.json'):
@@ -19,8 +19,8 @@ class RedditAccountManager:
             'posting_enabled': True
         })
         
-        # Store accounts
         self.accounts = config.get('accounts', [])
+        self.last_post_time: Optional[datetime] = None
         
         self.reddit_instances = {}
         for account in self.accounts:
@@ -31,6 +31,34 @@ class RedditAccountManager:
                 password=account['password'],
                 user_agent=f"script:content_poster:v1.0 (by /u/{account['username']})"
             )
+
+    def wait_until_next_slot(self, delay_minutes: int) -> None:
+        """Wait until the next available posting slot."""
+        if not self.last_post_time:
+            self.last_post_time = datetime.now()
+            return
+
+        # Calculate when we should post next
+        next_post_time = self.last_post_time + timedelta(minutes=delay_minutes)
+        current_time = datetime.now()
+
+        # If we need to wait, calculate the wait time
+        if next_post_time > current_time:
+            wait_seconds = (next_post_time - current_time).total_seconds()
+            if wait_seconds > 0:
+                print(f"\nWaiting until {next_post_time.strftime('%H:%M:%S')} before next post...")
+                self.countdown_timer(int(wait_seconds))
+
+        self.last_post_time = datetime.now()
+
+    @staticmethod
+    def countdown_timer(seconds: int) -> None:
+        """Display a countdown timer."""
+        for remaining in range(seconds, 0, -1):
+            sys.stdout.write(f"\rNext post in: {remaining//60:02d}:{remaining%60:02d}")
+            sys.stdout.flush()
+            time.sleep(1)
+        sys.stdout.write("\r" + " " * 30 + "\r")
 
     def get_flair_id(self, username: str, subreddit_name: str, flair_text: str) -> str | None:
         subreddit = self.reddit_instances[username].subreddit(subreddit_name)
@@ -73,7 +101,6 @@ class RedditAccountManager:
                     image_path=content_data['image_path'],
                     flair_id=flair_id
                 )
-                # Delete image immediately after successful submission
                 self.safely_delete_image(content_data['image_path'], debug)
             else:
                 submission = subreddit.submit(
@@ -100,28 +127,18 @@ class RedditAccountManager:
             
         return f"https://reddit.com{submission.permalink}"
 
-def countdown_timer(minutes: int):
-    for remaining in range(minutes * 60, 0, -1):
-        sys.stdout.write(f"\rNext post in: {remaining//60:02d}:{remaining%60:02d}")
-        sys.stdout.flush()
-        time.sleep(1)
-    sys.stdout.write("\r" + " " * 30 + "\r")
-
 def prepare_content(account: Dict[str, Any], subreddit_config: Dict[str, Any]) -> Dict[str, Any] | None:
     content = {
         'subreddit': subreddit_config['name'],
         'flair_text': subreddit_config.get('flair_text')
     }
     
-    # Handle title selection
     title_template = subreddit_config['title_template']
     content['title'] = random.choice(title_template) if isinstance(title_template, list) else title_template
 
-    # Handle description selection
     description_template = subreddit_config['description_template']
     description = random.choice(description_template) if isinstance(description_template, list) else description_template
 
-    # Replace hyperlink if exists
     hyperlink = account['profile'].get('hyperlink', '')
     content['description'] = description.format(hyperlink=hyperlink)
 
@@ -139,13 +156,13 @@ def prepare_content(account: Dict[str, Any], subreddit_config: Dict[str, Any]) -
         content['image_path'] = os.path.join(folder_name, images[0])
 
     return content
+
 def main():
     print("Starting Reddit poster script...")
     
     try:
         manager = RedditAccountManager()
         
-        # Get settings from global config
         debug_mode = manager.global_settings.get('debug_mode', False)
         delay_minutes = manager.global_settings.get('delay_minutes', 33)
         posting_enabled = manager.global_settings.get('posting_enabled', True)
@@ -163,7 +180,7 @@ def main():
             delay_minutes = 0
 
         post_times = []
-        posts_made = 0  # Track total posts made
+        posts_made = 0
 
         print(f"Processing {len(manager.accounts)} accounts...")
 
@@ -173,22 +190,20 @@ def main():
             for subreddit_config in account['subreddits']:
                 print(f"Processing subreddit: {subreddit_config['name']}")
                 
-                # Add delay BEFORE making each post (except the first one)
-                if posts_made > 0:
-                    print(f"\nWaiting {delay_minutes} minutes before next post...")
-                    countdown_timer(delay_minutes)
+                # Wait for the next available posting slot
+                if not debug_mode and posts_made > 0:
+                    manager.wait_until_next_slot(delay_minutes)
                 
                 content = prepare_content(account, subreddit_config)
                 if not content:
                     print(f"No content available for {account['username']} in r/{subreddit_config['name']}")
                     continue
 
-                current_time = datetime.now()
-                
                 try:
                     url = manager.post_content(account['username'], content, debug=debug_mode)
+                    current_time = datetime.now()
                     post_times.append(current_time)
-                    posts_made += 1  # Increment post counter
+                    posts_made += 1
                     
                     print(f"\nPosted at {current_time.strftime('%H:%M:%S')}")
                     print(f"Posted to r/{content['subreddit']}")
